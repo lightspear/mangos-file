@@ -1,0 +1,19 @@
+[App]
+Title=""
+GrpcLiveLogAddr = ""
+Port=5000
+
+
+[ResNodes]
+
+[ResNodes.node1]
+RootDir="D:/AllData"
+UserName="admin"
+UserPwd="123456"
+
+
+[ResNodes.node2]
+RootDir="D:/AllData"
+UserName="admin"
+UserPwd="123456"
+

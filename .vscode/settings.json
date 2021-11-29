@@ -1,0 +1,6 @@
+{
+
+  "go.gopath": "C:/Users/Administrator/go" ,
+  "go.lintFlags": ["--disable=all", "--enable=errcheck"]
+
+}

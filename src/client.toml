@@ -1,0 +1,54 @@
+Title=""
+GrpcLiveLogAddr = ""
+#远程资源地址
+WSServerUrl="ws://127.0.0.1:5000"
+#资源节点
+ResNode="node1"
+#远程目录
+RemoteDir="/Xabc/UploadData"
+#本地目录
+LocalDir="../Client/测试/store"
+#上传成功后转移目录
+MoveDir="../Client/测试/store_ok"
+
+#密钥
+UserPwd="123456"
+#是否断点续传
+Resume=1
+#单次下载文件片断大小(单位KB)
+SliceSize=128
+# #循环执行间隔(单位s)(默认不循环ExecInterval=0)
+# ExecInterval=1
+
+
+#==================================================================================#
+
+
+#下载优先规则,如果不配置优先级规则那就是按修改时间优先级
+# PriorRule="<dirs>/%Y-%m-%d/"
+
+# #起始日期
+StartDay="2020-04-01"
+# #结束日期
+EndDay= "2020-12-01"
+# #下载记录db
+# RecordDb="../Client/测试/db/count.db"
+# DbViewHttpPort=9000
+# #完成日志文件路径
+# Completelogfile="../Client/测试/complete/%Y-%m-%d.txt"
+
+
+
+# [[LimitRate]]
+# #限速时段(如果当前时间不在任何一个时段,那么直接不限速)
+# TimeRange="07:00~20:00"
+# #限速大小(单位KB)
+# Rate=128
+
+# [[LimitRate]]
+# #限速时段(如果当前时间不在任何一个时段,那么直接不限速)
+# TimeRange="00:00~06:00"
+# #限速大小(单位KB)
+# Rate=256
+
+
