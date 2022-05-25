@@ -22,8 +22,16 @@ import (
 	_ "go.nanomsg.org/mangos/v3/transport/ws"
 )
 
+var uploadok_count int64 = 0
+
 func StartUploadTask(cfg *setting.GobalClientConf) {
 	fmt.Println("上传模式")
+
+	if cfg.IsDelete == 0 && cfg.MoveDir == "" {
+		fmt.Println("不能同时IsDelete==false且MoveDir==空")
+		return
+	}
+
 	//过滤文件表达式
 	FilePattern := cfg.FilePattern
 	FilePatternList := []string{}
@@ -62,7 +70,7 @@ func StartUploadTask(cfg *setting.GobalClientConf) {
 	nowQueue := pblib.NewCASQueue(1024 * 1024)
 	oldQueue := pblib.NewCASQueue(1024 * 1024)
 	//消费队列(优先消费今天的)
-
+	// uploadok_count := 0
 	go func() {
 		for {
 			if nowQueue.Quantity() > 0 {
@@ -76,6 +84,7 @@ func StartUploadTask(cfg *setting.GobalClientConf) {
 						//如果没有成功则重新压入队列
 						nowQueue.Put(data)
 					}
+
 				}
 			}
 			if nowQueue.Quantity() == 0 {
@@ -176,7 +185,7 @@ func StartUploadTask(cfg *setting.GobalClientConf) {
 	}()
 
 	for {
-
+		time.Sleep(time.Second)
 	}
 
 }
@@ -202,33 +211,35 @@ func getsock_upload(cfg *setting.GobalClientConf) *mangos.Socket {
 	// Time for TCP connection set up
 	sock.SetOption(mangos.OptionRecvDeadline, time.Second)
 	sock.SetOption(mangos.OptionSendDeadline, time.Second)
+	// sock.SetOption(mangos.OptionRetryTime, 5)
 
 	uploadsock = &sock
 	return uploadsock
 }
 
-var checkfilesock *mangos.Socket = nil
+// var checkfilesock *mangos.Socket = nil
 
-func getsock_checkfile(cfg *setting.GobalClientConf) *mangos.Socket {
-	if checkfilesock != nil {
-		return checkfilesock
-	}
+// func getsock_checkfile(cfg *setting.GobalClientConf) *mangos.Socket {
+// 	if checkfilesock != nil {
+// 		return checkfilesock
+// 	}
 
-	sock, e := req.NewSocket()
-	if e != nil {
-		die("cannot make req socket: %v", e)
-	}
-	url := fmt.Sprintf("%s/checkfile", cfg.WSServerUrl)
-	if e = sock.Dial(url); e != nil {
-		// die("cannot dial req url: %v", e)
-		return getsock_checkfile(cfg)
-	}
-	// Time for TCP connection set up
-	sock.SetOption(mangos.OptionRecvDeadline, time.Second)
-	sock.SetOption(mangos.OptionSendDeadline, time.Second)
-	checkfilesock = &sock
-	return checkfilesock
-}
+// 	sock, e := req.NewSocket()
+// 	if e != nil {
+// 		die("cannot make req socket: %v", e)
+// 	}
+// 	url := fmt.Sprintf("%s/checkfile", cfg.WSServerUrl)
+// 	if e = sock.Dial(url); e != nil {
+// 		// die("cannot dial req url: %v", e)
+// 		return getsock_checkfile(cfg)
+// 	}
+// 	// Time for TCP connection set up
+// 	sock.SetOption(mangos.OptionRecvDeadline, time.Second)
+// 	sock.SetOption(mangos.OptionSendDeadline, time.Second)
+// 	sock.SetOption(mangos.OptionBestEffort, true)
+// 	checkfilesock = &sock
+// 	return checkfilesock
+// }
 
 func uploadfile(fullpath string, proof *ProofInfo, cfg *setting.GobalClientConf) bool {
 	fileInfo := pblib.FileInfo{}
@@ -237,60 +248,89 @@ func uploadfile(fullpath string, proof *ProofInfo, cfg *setting.GobalClientConf)
 		return true
 	}
 
-	psock := getsock_checkfile(cfg)
+	psock := getsock_common(cfg)
 	sock := *psock
 
 	relativePath := path.Join(cfg.RemoteDir, strings.TrimPrefix(fullpath, cfg.LocalDir))
 
 	doneCh := make(chan struct{})
 	failCh := make(chan struct{})
+	sockErrCh := make(chan struct{})
 
-	data := CheckFileRespInfo{}
-	cmd := CheckFileCMD{
-		Path:     relativePath,
-		FileInfo: fileInfo,
-		Proof:    *proof,
+	var err error
+	data := ClientCommonRespInfo{}
+
+	cmd := ClientCommonCMD{
+		Cmd:   "checkfile",
+		Proof: *proof,
+		Body: CheckFileCMD{
+			Path:     relativePath,
+			FileInfo: fileInfo,
+		},
 	}
-	// fmt.Println("fullpath=", fullpath)
 
-	jsonbytes, _ := json.Marshal(cmd)
-
-	// fmt.Println("jsonbytes=", string(jsonbytes))
 	go func() {
-		if e := sock.Send(jsonbytes); e != nil {
-			fmt.Printf("Cannot send req: %v\n", e)
+		var b bytes.Buffer
+		enc := gob.NewEncoder(&b)
+		err = enc.Encode(cmd)
+		if err != nil {
 			failCh <- struct{}{}
+		}
+
+		if e := sock.Send(b.Bytes()); e != nil {
+			fmt.Printf("uploadfile Cannot send req: %v\n", e)
+			sockErrCh <- struct{}{}
 		}
 
 		if m, e := sock.Recv(); e != nil {
-			fmt.Printf("Cannot recv reply: %v\n", e)
-			failCh <- struct{}{}
+			fmt.Printf("uploadfile Cannot recv reply: %v\n", e)
+			sockErrCh <- struct{}{}
 		} else {
-			dec := gob.NewDecoder(bytes.NewBuffer(m))
-			err := dec.Decode(&data)
+
+			err = json.Unmarshal(m, &data)
 			if err != nil {
 				failCh <- struct{}{}
-			}
-			// 成功
-			doneCh <- struct{}{}
-		}
+			} else if data.Status != 0 {
 
+				fmt.Printf("reply:%s\n", data.Msg)
+				failCh <- struct{}{}
+			} else {
+				doneCh <- struct{}{}
+			}
+			// fmt.Println("data=", data)
+			// 成功
+		}
 	}()
 
 	select {
 	case <-time.After(time.Second * 2):
-		fmt.Printf("time.After 2s\n")
+		fmt.Printf("uploadfile time.After 2s\n")
 		sock.Close()
-		checkfilesock = nil
+		commonsock = nil
+		return uploadfile(fullpath, proof, cfg)
+	case <-sockErrCh:
+		sock.Close()
+		commonsock = nil
+		// fmt.Printf("sockErrCh restart uploadfile\n")
 		return uploadfile(fullpath, proof, cfg)
 	case <-doneCh:
-		upload(fullpath, data.FileOffset, proof, cfg)
+		resp := CheckFileRespInfo{}
+		json.Unmarshal([]byte(data.Body), &resp)
+
+		isUploadOk := upload(fullpath, resp.FileOffset, proof, cfg)
+		if isUploadOk == false {
+			sock.Close()
+			commonsock = nil
+			return uploadfile(fullpath, proof, cfg)
+		}
 	case <-failCh:
+		// sock.Close()
+		// checkfilesock = nil
 		return uploadfile(fullpath, proof, cfg)
 	}
 	// fmt.Println("fullpath=", fullpath)
 	// os.Remove(fullpath)
-	return true
+	return false
 }
 
 func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.GobalClientConf) bool {
@@ -316,16 +356,21 @@ func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.Go
 	defer func() {
 		file.Close()
 		if isUploadOk == true {
-			if cfg.MoveDir != "" && cfg.MoveDir != "del" {
-				destFile := path.Join(cfg.MoveDir, strings.TrimPrefix(fullpath, cfg.LocalDir))
+			if cfg.MoveDir != "" {
+				localdir := strings.TrimPrefix(cfg.LocalDir, "./")
+				// fmt.Println("fullpath=", fullpath)
+				// fmt.Println("localdir", localdir)
+				destFile := path.Join(cfg.MoveDir, strings.TrimPrefix(fullpath, localdir))
 				os.MkdirAll(path.Dir(destFile), os.ModePerm)
 				err := os.Rename(fullpath, destFile)
 				if err != nil {
 					fmt.Println("localfile move err=", err)
 				} else {
-					pblib.LogInfo(mainLOOP, "[localfile move to] %s", destFile)
+					uploadok_count++
+					pblib.LogInfo(mainLOOP, "[localfile move to] %s,uploadok_count:%d", destFile, uploadok_count)
+
 				}
-			} else if cfg.MoveDir == "del" {
+			} else if cfg.IsDelete == 1 {
 				os.Remove(fullpath)
 			}
 		}
@@ -333,6 +378,7 @@ func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.Go
 	}()
 
 	doneCh := make(chan struct{})
+
 	bar := progressbar.NewOptions(int(fi.Size),
 		// progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
 		// progressbar.OptionEnableColorCodes(true),
@@ -352,6 +398,7 @@ func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.Go
 	var rateVal int = 0
 	t := time.Now().Local()
 	minutes := t.Hour()*60 + t.Minute()
+	//开始计算是否在限速时段,这个时段限速是多少
 	for _, v := range cfg.LimitRate {
 		calcMin := minutes
 		//如果计算时间比最小的时间还要小,且范围是跨过了一天的
@@ -370,7 +417,7 @@ func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.Go
 	}
 
 	go func() {
-		fmt.Println("fileoffset=", fileoffset)
+
 		file.Seek(fileoffset, os.SEEK_SET)
 		offset := fileoffset
 		bar.Set64(offset)
@@ -393,7 +440,17 @@ func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.Go
 			b := make([]byte, step)
 			n, _ := file.Read(b)
 			uploadbinary := b[:n]
+			// fmt.Printf("上传大小%d,:%d\n", offset, len(uploadbinary))
+			// time.Sleep(time.Second)
+
 			a := uploadSlice(remotefile, offset, uploadbinary, fi, proof, cfg)
+			if a.Status == 1 {
+				//
+				isUploadOk = false
+				break
+			}
+			// time.Sleep(time.Second * 2)
+
 			bar.Add(n)
 			// fmt.Println("a.FileOffset=", a.FileOffset)
 			// fmt.Println("fi.Size=", fi.Size)
@@ -403,11 +460,13 @@ func upload(fullpath string, fileoffset int64, proof *ProofInfo, cfg *setting.Go
 				isUploadOk = true
 				break
 			}
+			// fmt.Println("")
 			offset = a.FileOffset
 		}
 		doneCh <- struct{}{}
 	}()
 	<-doneCh
+
 	fmt.Println("isUploadOk", isUploadOk)
 
 	//上传后移动走
@@ -422,6 +481,7 @@ func uploadSlice(remotefile string, offset int64, uploadbytes []byte, fi pblib.F
 
 	doneCh := make(chan struct{})
 	failCh := make(chan struct{})
+	sockErrCh := make(chan struct{})
 	// doneCh <- struct{}{}
 	var err error
 	data := UploadRespInfo{}
@@ -439,18 +499,23 @@ func uploadSlice(remotefile string, offset int64, uploadbytes []byte, fi pblib.F
 		if err != nil {
 			failCh <- struct{}{}
 		}
-
+		// fmt.Printf("restart sock.Send:\n")
 		if e := sock.Send(b.Bytes()); e != nil {
-			fmt.Printf("Cannot send req: %v\n", e)
-			failCh <- struct{}{}
+			fmt.Printf("uploadSlice Cannot send req: %v\n", e)
+			sockErrCh <- struct{}{}
 		}
 
+		// fmt.Printf("restart sock.Recv:\n")
 		if m, e := sock.Recv(); e != nil {
-			fmt.Printf("Cannot recv reply: %v\n", e)
-			failCh <- struct{}{}
+			fmt.Printf("uploadSlice Cannot recv reply: %v\n", e)
+			// fmt.Printf("time.After 2s\n")
+			// time.Sleep(time.Millisecond * 1000 * 2)
+			sockErrCh <- struct{}{}
 		} else {
+
 			dec := gob.NewDecoder(bytes.NewBuffer(m))
 			err = dec.Decode(&data)
+			// fmt.Printf("sock.Recv:%v\n", data)
 			if err != nil {
 				failCh <- struct{}{}
 			} else if data.Status != 0 {
@@ -463,18 +528,32 @@ func uploadSlice(remotefile string, offset int64, uploadbytes []byte, fi pblib.F
 			// fmt.Println("data=", data)
 			// 成功
 		}
+
 	}()
 
 	select {
 	case <-time.After(time.Second * 2):
-		fmt.Printf("time.After 2s\n")
+		fmt.Printf("uploadSlice time.After 2s\n")
 		sock.Close()
 		uploadsock = nil
 		return uploadSlice(remotefile, offset, uploadbytes, fi, proof, cfg)
+	case <-sockErrCh:
+		sock.Close()
+		uploadsock = nil
+		data.Status = 1
+		return data
 	case <-doneCh:
+		//fmt.Printf("sock doneCh:%v\n", data)
 		return data
 	case <-failCh:
-		return uploadSlice(remotefile, offset, uploadbytes, fi, proof, cfg)
+		sock.Close()
+		uploadsock = nil
+		data.Status = 1
+		return data
+		// sock.Close()
+		// uploadsock = nil
+		// fmt.Printf("sock failCh:%v\n", data)
+		// return uploadSlice(remotefile, offset, uploadbytes, fi, proof, cfg)
 	}
 
 }

@@ -9,6 +9,8 @@ import (
 	"unsafe"
 
 	"os/exec"
+
+	color "github.com/fatih/color"
 )
 
 var (
@@ -26,33 +28,34 @@ var (
 
 )
 
-type Color struct {
-	colorVal int
+type PrintColor struct {
+	fgcolor color.Attribute
 }
 
-func (c *Color) Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error) {
-	handle, _, _ := proc.Call(uintptr(syscall.Stdout), uintptr(c.colorVal))
-	defer CloseHandle.Call(handle)
+func (c *PrintColor) Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error) {
+
+	color.Set(c.fgcolor, color.Bold)
+	defer color.Unset()
 	return fmt.Fprintf(w, format, a...)
 }
 
-func (c *Color) Printf(format string, a ...interface{}) (n int, err error) {
-	handle, _, _ := proc.Call(uintptr(syscall.Stdout), uintptr(c.colorVal))
-	defer CloseHandle.Call(handle)
+func (c *PrintColor) Printf(format string, a ...interface{}) (n int, err error) {
+	color.Set(c.fgcolor, color.Bold)
+	defer color.Unset()
 	return fmt.Printf(format, a...)
 }
 
-func (c *Color) Println(a ...interface{}) (n int, err error) {
-	handle, _, _ := proc.Call(uintptr(syscall.Stdout), uintptr(c.colorVal))
-	defer CloseHandle.Call(handle)
+func (c *PrintColor) Println(a ...interface{}) (n int, err error) {
+	color.Set(c.fgcolor, color.Bold)
+	defer color.Unset()
 	return fmt.Println(a...)
 }
 
-var FpErr Color
-var FpInfo Color
-var FpWarn Color
-var FpDebug Color
-var FpTrace Color
+var FpErr PrintColor
+var FpInfo PrintColor
+var FpWarn PrintColor
+var FpDebug PrintColor
+var FpTrace PrintColor
 
 func CenterWindowInDesktop() {
 	// a := rect{}
@@ -78,12 +81,11 @@ func init() {
 	// exec.Command("title", "fasdfsd")
 	CenterWindowInDesktop()
 
-	colorEnum := ColorEnum{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
-	FpErr.colorVal = colorEnum.light_red
-	FpInfo.colorVal = colorEnum.light_green
-	FpDebug.colorVal = colorEnum.light_cyan
-	FpWarn.colorVal = colorEnum.light_purple
-	FpTrace.colorVal = colorEnum.light_yellow
+	FpErr.fgcolor = color.FgHiRed
+	FpInfo.fgcolor = color.FgHiGreen
+	FpDebug.fgcolor = color.FgHiCyan
+	FpWarn.fgcolor = color.FgHiMagenta
+	FpTrace.fgcolor = color.FgHiYellow
 }
 
 func Logsys(logtype int, str string) {
@@ -93,23 +95,4 @@ func Logsys(logtype int, str string) {
 		uintptr(logtype),
 		uintptr(unsafe.Pointer(syscall.StringBytePtr(str))), 0)
 
-}
-
-type ColorEnum struct {
-	black        int // 黑色
-	blue         int // 蓝色
-	green        int // 绿色
-	cyan         int // 青色
-	red          int // 红色
-	purple       int // 紫色
-	yellow       int // 黄色
-	light_gray   int // 淡灰色（系统默认值）
-	gray         int // 灰色
-	light_blue   int // 亮蓝色
-	light_green  int // 亮绿色
-	light_cyan   int // 亮青色
-	light_red    int // 亮红色
-	light_purple int // 亮紫色
-	light_yellow int // 亮黄色
-	white        int // 白色
 }

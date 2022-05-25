@@ -1,7 +1,7 @@
 [App]
 Title=""
 GrpcLiveLogAddr = ""
-Port=5000
+Port=5001
 
 
 [ResNodes]
@@ -10,6 +10,7 @@ Port=5000
 RootDir="D:/AllData"
 UserName="admin"
 UserPwd="123456"
+DeleteFile=1
 
 
 [ResNodes.node2]

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	dealers "m/dealers"
 	pblib "m/pblib"
@@ -53,7 +54,7 @@ func main() {
 	flag.StringVar(&cfgpath, "c", "", "配置路径(cfgpath)")
 	flag.IntVar(&port, "p", 5000, "端口(port)")
 	flag.Parse()
-	logInfo("软件版本V0.0.2")
+	logInfo("软件版本V0.0.8")
 	logInfo("配置文件:%s", cfgpath)
 
 	switch role {
@@ -74,7 +75,7 @@ func main() {
 					go dealers.StartViewWeb()
 					dealers.StartDownloadClient(&cfg)
 					for {
-
+						time.Sleep(time.Second)
 					}
 				}
 			case "upload":

@@ -33,6 +33,7 @@ type GobalClientConf struct {
 	UserPwd         string
 	LocalDir        string
 	MoveDir         string
+	IsDelete        int
 	Resume          int
 	FilePattern     string
 	PriorRule       string
@@ -100,7 +101,8 @@ func GetClientConfig(filePath string) (cfg GobalClientConf) {
 	}
 
 	if cfg.SliceSize == 0 {
-		cfg.SliceSize = 128
+
+		cfg.SliceSize = 4
 	}
 
 	for i, v := range cfg.LimitRate {

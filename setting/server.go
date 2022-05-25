@@ -9,9 +9,10 @@ import (
 )
 
 type ResNode struct {
-	RootDir  string
-	UserName string
-	UserPwd  string
+	RootDir    string
+	UserName   string
+	UserPwd    string
+	DeleteFile int
 }
 
 type AppConf struct {

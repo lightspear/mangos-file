@@ -30,29 +30,6 @@ import (
 
 type FindFileCallback func(string, int, *pblib.FileInfo, *ProofInfo)
 
-var clientlistsock *mangos.Socket = nil
-
-func getsock_list(cfg *setting.GobalClientConf) *mangos.Socket {
-	if clientlistsock != nil {
-		return clientlistsock
-	}
-
-	sock, e := req.NewSocket()
-	if e != nil {
-		die("cannot make req socket: %v", e)
-	}
-	url := fmt.Sprintf("%s/list", cfg.WSServerUrl)
-	if e = sock.Dial(url); e != nil {
-		// die("cannot dial req url: %v", e)
-		return getsock_list(cfg)
-	}
-	// Time for TCP connection set up
-	sock.SetOption(mangos.OptionRecvDeadline, time.Second)
-	sock.SetOption(mangos.OptionSendDeadline, time.Second)
-	clientlistsock = &sock
-	return clientlistsock
-}
-
 var downloadsock *mangos.Socket = nil
 
 func getsock_download(cfg *setting.GobalClientConf) *mangos.Socket {
@@ -72,7 +49,7 @@ func getsock_download(cfg *setting.GobalClientConf) *mangos.Socket {
 	// Time for TCP connection set up
 	sock.SetOption(mangos.OptionRecvDeadline, time.Second)
 	sock.SetOption(mangos.OptionSendDeadline, time.Second)
-
+	sock.SetOption(mangos.OptionBestEffort, true)
 	downloadsock = &sock
 	return downloadsock
 }
@@ -82,6 +59,73 @@ func min(x, y int) int {
 		return x
 	}
 	return y
+}
+
+func deleteRemoteFile(remotefile string, proof *ProofInfo, cfg *setting.GobalClientConf) ClientCommonRespInfo {
+	psock := getsock_common(cfg)
+
+	sock := *psock
+
+	doneCh := make(chan struct{})
+	failCh := make(chan struct{})
+	// doneCh <- struct{}{}
+	var err error
+	data := ClientCommonRespInfo{}
+	go func() {
+
+		s := DeleteFileCMD{
+			Path: remotefile,
+		}
+		cmd := ClientCommonCMD{
+			Cmd:   "deletefile",
+			Proof: *proof,
+			Body:  s,
+		}
+		var b bytes.Buffer
+		enc := gob.NewEncoder(&b)
+		err = enc.Encode(cmd)
+		if err != nil {
+			failCh <- struct{}{}
+		}
+
+		if e := sock.Send(b.Bytes()); e != nil {
+			fmt.Printf("Cannot send req: %v\n", e)
+			failCh <- struct{}{}
+		}
+
+		if m, e := sock.Recv(); e != nil {
+			fmt.Printf("Cannot recv reply: %v\n", e)
+			failCh <- struct{}{}
+		} else {
+
+			err = json.Unmarshal(m, &data)
+
+			if err != nil {
+				failCh <- struct{}{}
+			} else if data.Status != 0 {
+				fmt.Printf("reply:%s\n", data.Msg)
+				failCh <- struct{}{}
+			} else {
+				doneCh <- struct{}{}
+			}
+
+			// fmt.Println("data=", data)
+			// 成功
+		}
+
+	}()
+
+	select {
+	case <-time.After(time.Second * 2):
+		sock.Close()
+		commonsock = nil
+		fmt.Printf("time.After 2s\n")
+		return deleteRemoteFile(remotefile, proof, cfg)
+	case <-doneCh:
+		return data
+	case <-failCh:
+		return deleteRemoteFile(remotefile, proof, cfg)
+	}
 }
 
 func download(remotefile string, LocalDir string, fileinfo *pblib.FileInfo, proof *ProofInfo, cfg *setting.GobalClientConf) bool {
@@ -163,7 +207,8 @@ func download(remotefile string, LocalDir string, fileinfo *pblib.FileInfo, proo
 	// io.MultiWriter()
 	// writer := bufio.NewWriter(file)
 	// file,_=os.OpenFile()
-	pblib.LogInfo(mainLOOP, "[start download] %s", remotefile)
+	// pblib.LogDebug(mainLOOP, "\n")
+	pblib.LogDebug(mainLOOP, "[start download] %s", remotefile)
 	//假设速率限制是每秒128kb
 	//
 	var rateVal int = 0
@@ -239,6 +284,7 @@ func downloadSlice(remotefile string, offset int64, downloadSize int, proof *Pro
 
 	doneCh := make(chan struct{})
 	failCh := make(chan struct{})
+	sockErrCh := make(chan struct{})
 	// doneCh <- struct{}{}
 	var err error
 	data := DownloadRespInfo{}
@@ -276,6 +322,10 @@ func downloadSlice(remotefile string, offset int64, downloadSize int, proof *Pro
 		sock.Close()
 		downloadsock = nil
 		return downloadSlice(remotefile, offset, downloadSize, proof, cfg)
+	case <-sockErrCh:
+		sock.Close()
+		downloadsock = nil
+		return downloadSlice(remotefile, offset, downloadSize, proof, cfg)
 	case <-doneCh:
 		return data, nil
 	case <-failCh:
@@ -300,55 +350,74 @@ func startDownloadTask(searchdir string, level int, cfg *setting.GobalClientConf
 		searchdir += priorInfo.SkipFunc(relativedir, level)
 	}
 
-	psock := getsock_list(cfg)
+	psock := getsock_common(cfg)
 
 	sock := *psock
 
-	// fmt.Println("searchdir=", searchdir)
-	cmd := listCMD{
-		Dir:   strings.TrimRight(searchdir, "/"),
-		Proof: proof,
-	}
-	bytes, _ := json.Marshal(cmd)
-
 	doneCh := make(chan struct{})
 	failCh := make(chan struct{})
-	var retBytes []byte
+	var err error
+	data := ClientCommonRespInfo{}
+
+	cmd := ClientCommonCMD{
+		Cmd:   "list",
+		Proof: proof,
+		Body: ListDirCMD{
+			Dir: strings.TrimRight(searchdir, "/"),
+		},
+	}
 	go func() {
-		if e := sock.Send(bytes); e != nil {
-			fmt.Printf("Cannot send req: %v", e)
+
+		var b bytes.Buffer
+		enc := gob.NewEncoder(&b)
+		err = enc.Encode(cmd)
+		if err != nil {
 			failCh <- struct{}{}
 		}
+
+		if e := sock.Send(b.Bytes()); e != nil {
+			fmt.Printf("Cannot send req: %v\n", e)
+			failCh <- struct{}{}
+		}
+
 		if m, e := sock.Recv(); e != nil {
-			fmt.Printf("Cannot recv reply: %v", e)
+			fmt.Printf("Cannot recv reply: %v\n", e)
 			failCh <- struct{}{}
 		} else {
-			retBytes = m
-			doneCh <- struct{}{}
+
+			err = json.Unmarshal(m, &data)
+			if err != nil {
+				failCh <- struct{}{}
+			} else if data.Status != 0 {
+
+				fmt.Printf("reply:%s\n", data.Msg)
+				failCh <- struct{}{}
+			} else {
+				doneCh <- struct{}{}
+			}
+			// fmt.Println("data=", data)
+			// 成功
 		}
 	}()
 
 	select {
 	case <-time.After(time.Second * 2):
 		fmt.Printf("list time.After 2s\n")
-		sock.Close()
-		clientlistsock = nil
+		commonsock = nil
 		startDownloadTask(searchdir, level, cfg, priorInfo, fileCallback)
 	case <-doneCh:
 		{
 			listFiles := []pblib.FileInfo{}
-			json.Unmarshal(retBytes, &listFiles)
+			json.Unmarshal([]byte(data.Body), &listFiles)
 			// fmt.Println(listFiles)
 			for _, v := range listFiles {
 				if v.IsDir {
 					startDownloadTask(path.Join(searchdir, v.Name), level+1, cfg, priorInfo, fileCallback)
 				} else {
 					remotefile := path.Join(searchdir, v.Name)
-
 					if fileCallback != nil {
 						fileCallback(remotefile, level, &v, &proof)
 					}
-
 				}
 			}
 		}
@@ -488,6 +557,17 @@ MAIN:
 				if cfg.StartDay != "" {
 					writeRecord(CurrentDate.Format("2006-01-02"), priorInfo.DownloadCount)
 				}
+				//如果删除标记打开了,则必须开始删除服务的文件了
+				if cfg.IsDelete == 1 {
+
+					//fmt.Println("try delete remotefile=", remotefile)
+					ret := deleteRemoteFile(remotefile, proof, cfg)
+					if ret.Status == 0 {
+						pblib.LogTrace(mainLOOP, "[delete remote file ok]")
+					}
+
+				}
+
 			}
 		})
 

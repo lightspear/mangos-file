@@ -1,20 +1,27 @@
 Title=""
 GrpcLiveLogAddr = ""
 #远程资源地址
-WSServerUrl="ws://127.0.0.1:5000"
+WSServerUrl="ws://127.0.0.1:5001"
+# WSServerUrl="ws://192.168.0.99:5001"
 #资源节点
 ResNode="node1"
 #远程目录
 RemoteDir="/Xabc/UploadData"
 #本地目录
-LocalDir="../Client/测试/store"
+LocalDir="../Client/测试2/store"
 #上传成功后转移目录
-MoveDir="../Client/测试/store_ok"
+MoveDir="../Client/测试2/store_ok"
+
+
+
+#如果是下载模式代表下载完毕是否删除服务器
+#如果是上传模式代表上传完成后是否立即删除
+# IsDelete=1
 
 #密钥
 UserPwd="123456"
-#是否断点续传
-Resume=1
+# #是否断点续传
+# Resume=10
 #单次下载文件片断大小(单位KB)
 SliceSize=128
 # #循环执行间隔(单位s)(默认不循环ExecInterval=0)
@@ -28,9 +35,9 @@ SliceSize=128
 # PriorRule="<dirs>/%Y-%m-%d/"
 
 # #起始日期
-StartDay="2020-04-01"
+# StartDay="2020-04-01"
 # #结束日期
-EndDay= "2020-12-01"
+# EndDay= "2020-12-01"
 # #下载记录db
 # RecordDb="../Client/测试/db/count.db"
 # DbViewHttpPort=9000
@@ -43,7 +50,7 @@ EndDay= "2020-12-01"
 # #限速时段(如果当前时间不在任何一个时段,那么直接不限速)
 # TimeRange="07:00~20:00"
 # #限速大小(单位KB)
-# Rate=128
+# Rate=512
 
 # [[LimitRate]]
 # #限速时段(如果当前时间不在任何一个时段,那么直接不限速)

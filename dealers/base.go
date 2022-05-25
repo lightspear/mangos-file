@@ -1,6 +1,7 @@
 package dealers
 
 import (
+	"encoding/gob"
 	"fmt"
 	pblib "m/pblib"
 	"os"
@@ -36,18 +37,33 @@ type listCMD struct {
 	Proof ProofInfo
 }
 
+type ListDirCMD struct {
+	Dir string
+}
+
+//
+type DeleteFileCMD struct {
+	Path string
+}
+
+type DeleteFileRespInfo struct {
+	Status int
+	Msg    string
+}
+
 //上传文件前文件的预校验
 type CheckFileCMD struct {
 	Path     string
 	FileInfo pblib.FileInfo
-	Proof    ProofInfo
 }
 
 type CheckFileRespInfo struct {
+	FileOffset int64
 	Status     int
 	Msg        string
-	FileOffset int64
 }
+
+//下载和上传暂不改造
 
 type DownloadCMD struct {
 	RemoteFile     string
@@ -77,4 +93,26 @@ type UploadRespInfo struct {
 	Status     int
 	Msg        string
 	FileOffset int64
+}
+
+//统一命令发送
+type ClientCommonCMD struct {
+	Cmd   string
+	Proof ProofInfo
+	Body  interface{}
+}
+
+//统一命令发送
+type ClientCommonRespInfo struct {
+	Status int
+	Msg    string
+	Body   string
+}
+
+func init() {
+
+	gob.Register(DeleteFileCMD{})
+	gob.Register(ListDirCMD{})
+	gob.Register(CheckFileCMD{})
+
 }
