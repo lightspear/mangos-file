@@ -2,8 +2,8 @@
 
 mangos-file是一款基于mangos-go消息中间件纯go语言研发的专门用于文件传输同步工具
 ​
-[lightspear/mangos-file(gitee)](https://gitee.com/lightspear/mangos-file)
-[lightspear/mangos-file(github)](https://github.com/lightspear/mangos-file)
+- [lightspear/mangos-file(gitee)](https://gitee.com/lightspear/mangos-file)
+- [lightspear/mangos-file(github)](https://github.com/lightspear/mangos-file)
 
 ​
 ## 特点
